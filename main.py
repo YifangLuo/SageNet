@@ -1,4 +1,5 @@
-from stiff_SGWB import LCDM_SG as sg
+# from stiff_SGWB import LCDM_SG as sg
+from stiffGWpy.stiff_SGWB import LCDM_SG as sg
 
 model = sg(r = 1e-2,
            cr = 1,

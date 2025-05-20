@@ -1,0 +1,30 @@
+[project]
+name = "sagenetgw"
+version = "0.1.0"
+description = "A Python package for gravitational wave analysis using neural networks"
+readme = "README.md"
+authors = [
+    { name = "Yifang Luo", email = "luoyifang@bupt.cn" },
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.21.0",
+    "torch>=1.9.0",
+    "scikit-learn>=1.6.1"
+    # 列出你的项目依赖
+]
+keywords = ["gravitational waves", "neural networks", "machine learning"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/luoyifang/sagenet"
+Repository = "https://github.com/luoyifang/sagenet"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,3 @@
+[submodule "stiffGWpy"]
+	path = stiffGWpy
+	url = https://github.com/bohuarolandli/stiffGWpy.git
