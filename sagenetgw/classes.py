@@ -48,10 +48,9 @@ class GWDataset(Dataset):
         curve = torch.tensor(self.curves[idx], dtype=torch.float32)
         return params, curve
 
-
-def collate_fn(batch):
-    params, curves = zip(*batch)
-    return torch.stack(params), torch.stack(curves)
+    def collate_fn(self, batch):
+        params, curves = zip(*batch)
+        return torch.stack(params), torch.stack(curves)
 
 
 class CurvePredictorFormer(nn.Module):
@@ -99,52 +98,7 @@ class CurvePredictorFormer(nn.Module):
         return outputs
         # return outputs.permute(0, 2, 1)
 
-
-from tqdm import tqdm
-
-
-class GWPredictorFormer:
-    def __init__(self, model_path='best_gw_model.pth'):
-        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-
-        self.model = CurvePredictorFormer()
-        self.model.load_state_dict(checkpoint['model_state'])
-        self.model.eval()
-
-        self.x_scaler = checkpoint['x_scaler']
-        self.y_scaler = checkpoint['y_scaler']
-        self.param_scaler = checkpoint['param_scaler']
-
-    def predict(self, params_dict):
-        params = np.array([
-            log10(params_dict['r']),
-            params_dict['n_t'],
-            log10(params_dict['kappa10']),
-            log10(params_dict['T_re']),
-            params_dict['DN_re'],
-            params_dict['Omega_bh2'],
-            params_dict['Omega_ch2'],
-            params_dict['H0'],
-            params_dict['A_s']
-        ]).reshape(1, -1)
-
-        scaled_params = self.param_scaler.transform(params)
-
-        with torch.no_grad():
-            inputs = torch.tensor(scaled_params, dtype=torch.float32)
-            outputs = self.model(inputs).numpy()
-
-        # denorm = self.y_scaler.inverse_transform(
-        #     outputs.reshape(-1, 2)).reshape(outputs.shape)
-        denorm_x = self.x_scaler.inverse_transform(outputs[..., 0].reshape(-1, 1)).reshape(outputs.shape[0], -1)
-        denorm_y = self.y_scaler.inverse_transform(outputs[..., 1].reshape(-1, 1)).reshape(outputs.shape[0], -1)
-
-        return {
-            'f': denorm_x[0].tolist(),
-            'log10OmegaGW': denorm_y[0].tolist()
-        }
-
-class CurvePredictor(nn.Module):
+class CurvePredictorLSTM(nn.Module):
     def __init__(self):
         super().__init__()
         # 参数编码器
@@ -185,13 +139,31 @@ class CurvePredictor(nn.Module):
         return self.decoder(lstm_out)
 
 class GWPredictor:
-    def __init__(self, model_path='best_gw_model.pth'):
-        checkpoint = torch.load(model_path, map_location='cpu',weights_only=False)
+    def __init__(self, model_path='best_gw_model.pth', model_type='LSTM', device='cpu'):
+        """
+        Initialize the GWPredictor with specified model type and device.
 
-        self.model = CurvePredictor()
+        Args:
+            model_path (str): Path to the pretrained model checkpoint.
+            model_type (str): Type of model ('LSTM' or 'Transformer').
+            device (str): Device to run the model on ('cpu' or 'cuda').
+        """
+        if device not in ['cpu', 'cuda']:
+            raise ValueError("device must be 'cpu' or 'cuda'")
+        if device == 'cuda' and not torch.cuda.is_available():
+            raise RuntimeError("CUDA is not available on this system")
+
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+
+        if model_type == 'LSTM':
+            self.model = CurvePredictorLSTM()
+        elif model_type == 'Transformer':
+            self.model = CurvePredictorFormer()
+        else:
+            raise ValueError("model_type must be 'LSTM' or 'Transformer'")
+
         self.model.load_state_dict(checkpoint['model_state'])
-        # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.device = 'cpu'
+        self.device = torch.device(device)
         self.model = self.model.to(self.device)
         self.model.eval()
         self.x_scaler = checkpoint['x_scaler']
@@ -199,23 +171,34 @@ class GWPredictor:
         self.param_scaler = checkpoint['param_scaler']
 
     def predict(self, params_dict):
+        """
+        Predict gravitational wave signal based on input parameters.
+
+        Args:
+            params_dict (dict): Dictionary containing parameters:
+                r, n_t, kappa10, T_re, DN_re, Omega_bh2, Omega_ch2, H0, A_s
+
+        Returns:
+            dict: Dictionary with 'f' (frequency) and 'log10OmegaGW' (GW energy density).
+        """
         params = np.array([
             log10(params_dict['r']),
             params_dict['n_t'],
             log10(params_dict['kappa10']),
             log10(params_dict['T_re']),
-            params_dict['DN_re']
+            params_dict['DN_re'],
+            params_dict['Omega_bh2'],
+            params_dict['Omega_ch2'],
+            params_dict['H0'],
+            params_dict['A_s']
         ]).reshape(1, -1)
 
         scaled_params = self.param_scaler.transform(params)
 
         with torch.no_grad():
-            inputs = torch.tensor(scaled_params, dtype=torch.float32)
-            inputs = inputs.to(self.device)
+            inputs = torch.tensor(scaled_params, dtype=torch.float32).to(self.device)
             outputs = self.model(inputs).to('cpu').numpy()
 
-        # denorm = self.y_scaler.inverse_transform(
-        #     outputs.reshape(-1, 2)).reshape(outputs.shape)
         denorm_x = self.x_scaler.inverse_transform(outputs[..., 0].reshape(-1, 1)).reshape(outputs.shape[0], -1)
         denorm_y = self.y_scaler.inverse_transform(outputs[..., 1].reshape(-1, 1)).reshape(outputs.shape[0], -1)
 
@@ -223,4 +206,3 @@ class GWPredictor:
             'f': denorm_x[0].tolist(),
             'log10OmegaGW': denorm_y[0].tolist()
         }
-
