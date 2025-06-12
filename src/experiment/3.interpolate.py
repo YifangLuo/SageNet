@@ -47,6 +47,7 @@ if __name__ == "__main__":
         print(
             f"Sample {i}: {interp(max(len(sample['log10OmegaGW']) for sample in samples), sample, 'f_interp_85', 'log10OmegaGW_interp_85')}")
 
+    # to mongodb
     # from bson import ObjectId
     # from tqdm import tqdm
     # import pymongo
