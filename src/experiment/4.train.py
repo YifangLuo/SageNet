@@ -122,4 +122,4 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32):
 
 
 if __name__ == "__main__":
-    trained_model = train_gw_model("solve_plus.data.json", epochs=200)
+    trained_model = train_gw_model("solve_plus.data.json", model="LSTM", epochs=250)
