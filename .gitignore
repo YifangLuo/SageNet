@@ -2,3 +2,4 @@
 *.npy
 .workspace/
 .idea/
+dist/

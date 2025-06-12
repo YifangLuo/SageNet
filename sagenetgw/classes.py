@@ -5,7 +5,7 @@ import numpy as np
 from numpy import log10
 import warnings
 
-from models import LSTM, Former
+from .models import LSTM, Former
 
 
 class GWDataset(Dataset):
