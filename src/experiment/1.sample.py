@@ -92,11 +92,11 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # amount = args.amount
     #
-    # raw_file = f"./ignored/sagenet_plus_{amount}.json"
+    # raw_file = f"./.workspace/sagenet_plus_{amount}.json"
     # print("Start LHS sampling.")
     # samples = generate_parameters_lhs(amount, output_file=raw_file)
     # print("Samples generated and saved.")
 
-    output_dir = "./ignored/data_part"
+    output_dir = "./.workspace/data_part"
     num_parts = 37
-    split_json_file("./ignored/data.json", output_dir, num_parts)
+    split_json_file("./.workspace/data.json", output_dir, num_parts)
