@@ -36,7 +36,7 @@ class Former(nn.Module):
         )
 
     def forward(self, x):
-        batch_size = x.size(0)
+        # batch_size = x.size(0)
         encoded_params = self.param_encoder(x)
         seq = encoded_params.unsqueeze(1).repeat(1, self.num_points, 1)
         positions = torch.arange(self.num_points, device=x.device).unsqueeze(0)  # [1, N]
@@ -53,7 +53,7 @@ class LSTM(nn.Module):
         super().__init__()
         # 参数编码器
         self.encoder = nn.Sequential(
-            nn.Linear(5, 128),
+            nn.Linear(9, 128),
             nn.GELU(),
             nn.LayerNorm(128),
             nn.Linear(128, 256),
@@ -64,7 +64,7 @@ class LSTM(nn.Module):
         self.lstm = nn.LSTM(
             input_size=256,
             hidden_size=256,
-            num_layers=2,
+            num_layers=3,
             bidirectional=False,
             batch_first=True
         )
@@ -76,14 +76,27 @@ class LSTM(nn.Module):
         )
 
     def forward(self, x):
-        # 编码参数 [B,5] -> [B,256]
+        # encode param [B,5] -> [B,256]
         encoded = self.encoder(x)
 
-        # 扩展为序列 [B,256] -> [B,256,256]
+        # expand sequence [B,256] -> [B,256,256]
         repeated = encoded.unsqueeze(1).repeat(1, 256, 1)
 
-        # 双向LSTM处理 [B,256,256] -> [B,256,512]
+        # LSTM [B,256,256] -> [B,256,512]
         lstm_out, _ = self.lstm(repeated)
 
-        # 解码输出 [B,256,512] -> [B,256,2]
+        # decoded [B,256,512] -> [B,256,2]
         return self.decoder(lstm_out)
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.LayerNorm(dim)
+        )
+
+    def forward(self, x):
+        return x + self.block(x)

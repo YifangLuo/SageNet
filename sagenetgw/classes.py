@@ -48,10 +48,6 @@ class GWDataset(Dataset):
         curve = torch.tensor(self.curves[idx], dtype=torch.float32)
         return params, curve
 
-    def collate_fn(self, batch):
-        params, curves = zip(*batch)
-        return torch.stack(params), torch.stack(curves)
-
 
 class GWPredictor:
     def __init__(self, model_path='best_gw_model.pth', model_type='Transformer', device='cpu'):
