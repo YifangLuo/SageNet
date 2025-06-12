@@ -4,12 +4,13 @@ import json
 from tqdm import tqdm
 
 client = MongoClient('mongodb://localhost:27017/')
-db = client['solve_plus']  # Replace with your actual database name
-collection = db['data']  # Replace with your actual collection name
+db = client['solve_plus']  # replace with your actual database name
+collection = db['data']  # replace with your actual collection name
 
 if __name__ == "__main__":
     for volume in tqdm(range(1,38)):
-        filename = f'../solve/output/processed_data_{volume}.json'
+        # replace with your dir
+        filename = f'./json/processed_data_{volume}.json'
         try:
             with open(filename, 'r') as f:
                 data = json.load(f)
