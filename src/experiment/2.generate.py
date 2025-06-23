@@ -1,3 +1,4 @@
+import os
 from IPython.display import clear_output
 from stiffGWpy.stiff_SGWB import LCDM_SG as SG
 from tqdm import tqdm
@@ -9,9 +10,15 @@ parser.add_argument('--volume', type=int, required=True, help='Volume number of 
 args = parser.parse_args()
 volume = args.volume
 
-with open(f'./src/solve/input/data_part_{volume}.json', 'r') as f:
+input_dir = './raw'
+output_dir = './processed'
+os.makedirs(input_dir, exist_ok=True)
+os.makedirs(output_dir, exist_ok=True)
+input_file = os.path.join(input_dir, f'data_part_{volume}.json')
+with open(input_file, 'r') as f:
     data = json.load(f)
 
+# Filter unprocessed data
 unprocessed_data = [
     doc for doc in data
     if 'log10OmegaGW' not in doc
@@ -43,5 +50,6 @@ if __name__ == "__main__":
         except AttributeError:
             continue
 
-    with open(f'./src/solve/output/processed_data_{volume}.json', 'w') as f:
+    output_file = os.path.join(output_dir, f'processed_data_{volume}.json')
+    with open(output_file, 'w') as f:
         json.dump(processed_docs, f, indent=2)
