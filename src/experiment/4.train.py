@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
-from sagenetgw.models import LSTM, Former
+from sagenetgw.models import LSTM, Former, CosmicNet2, RNN
 from sagenetgw.classes import GWDataset
 from tqdm import tqdm
 
@@ -53,10 +53,15 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    model_name = model
     if model == 'LSTM':
         model = LSTM().to(device)
     elif model == 'Transformer':
         model = Former().to(device)
+    elif model == 'CosmicNet2':
+        model = CosmicNet2().to(device)
+    elif model == 'RNN':
+        model = RNN().to(device)
     else:
         raise ValueError(f'Unspecified model type "{model}".')
 
@@ -116,7 +121,7 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32):
                 'x_scaler': full_dataset.x_scaler,
                 'y_scaler': full_dataset.y_scaler,
                 'param_scaler': full_dataset.param_scaler
-            }, 'best_gw_model.pth')
+            }, f'best_gw_model_{model_name}_{len(raw_data)}.pth')
 
     return model
 
