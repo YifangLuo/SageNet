@@ -12,8 +12,11 @@ from sagenetgw.classes import GWPredictor
 import numpy as np
 from matplotlib import pyplot as plt
 
+predictor = GWPredictor(
+        model_type='Transformer',
+        device="cpu"
+    )
 
-predictor = GWPredictor()
 prediction = predictor.predict({
     "r":3.9585109e-05, 
     "n_t":1.0116972, 
