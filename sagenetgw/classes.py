@@ -1,5 +1,4 @@
 import os
-
 import torch
 from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
@@ -8,6 +7,26 @@ from numpy import log10
 import warnings
 
 from .models import LSTM, Former, CosmicNet2, RNN
+from .stiffGWpy.stiff_SGWB import LCDM_SG as sg
+
+
+class Numerical:
+    def __init__(self):
+        self.model = None
+        return
+
+    def solve(self, params_dict):
+        self.model = sg(r=params_dict['r'],
+                        n_t=params_dict['n_t'],
+                        kappa10=params_dict['kappa10'],
+                        T_re=params_dict['T_re'],
+                        DN_re=params_dict['DN_re'],
+                        Omega_bh2=params_dict['Omega_bh2'],
+                        Omega_ch2=params_dict['Omega_ch2'],
+                        H0=params_dict['H0'],
+                        A_s=params_dict['A_s'])
+        self.model.SGWB_iter()
+        return self.model.f, self.model.log10OmegaGW
 
 
 class GWDataset(Dataset):
@@ -61,6 +80,11 @@ class GWPredictor:
             model_type (str): Type of model ('LSTM' or 'Transformer').
             device (str): Device to run the model on ('cpu' or 'cuda').
         """
+        self.model_type = model_type
+        if model_type == 'Numerical':
+            self.solver = Numerical()
+            return
+
         if device not in ['cpu', 'cuda']:
             raise ValueError("device must be 'cpu' or 'cuda'")
         if device == 'cuda' and not torch.cuda.is_available():
@@ -156,28 +180,34 @@ class GWPredictor:
                     f"({'logarithmic' if param_ranges[param][2] == 'logarithmic' else 'linear'} scale)"
                 )
 
-        params = np.array([
-            log10(params_dict['r']),
-            params_dict['n_t'],
-            log10(params_dict['kappa10']),
-            log10(params_dict['T_re']),
-            params_dict['DN_re'],
-            params_dict['Omega_bh2'],
-            params_dict['Omega_ch2'],
-            params_dict['H0'],
-            params_dict['A_s']
-        ]).reshape(1, -1)
+        if self.model_type == "Numerical":
+            f_solved, omega_solved = self.solver.solve(params_dict)
+            return {
+                'f': f_solved,
+                'log10OmegaGW': omega_solved.tolist()
+            }
+        else:
+            params = np.array([
+                log10(params_dict['r']),
+                params_dict['n_t'],
+                log10(params_dict['kappa10']),
+                log10(params_dict['T_re']),
+                params_dict['DN_re'],
+                params_dict['Omega_bh2'],
+                params_dict['Omega_ch2'],
+                params_dict['H0'],
+                params_dict['A_s']
+            ]).reshape(1, -1)
+            scaled_params = self.param_scaler.transform(params)
 
-        scaled_params = self.param_scaler.transform(params)
+            with torch.no_grad():
+                inputs = torch.tensor(scaled_params, dtype=torch.float32).to(self.device)
+                outputs = self.model(inputs).to('cpu').numpy()
 
-        with torch.no_grad():
-            inputs = torch.tensor(scaled_params, dtype=torch.float32).to(self.device)
-            outputs = self.model(inputs).to('cpu').numpy()
+            denorm_x = self.x_scaler.inverse_transform(outputs[..., 0].reshape(-1, 1)).reshape(outputs.shape[0], -1)
+            denorm_y = self.y_scaler.inverse_transform(outputs[..., 1].reshape(-1, 1)).reshape(outputs.shape[0], -1)
 
-        denorm_x = self.x_scaler.inverse_transform(outputs[..., 0].reshape(-1, 1)).reshape(outputs.shape[0], -1)
-        denorm_y = self.y_scaler.inverse_transform(outputs[..., 1].reshape(-1, 1)).reshape(outputs.shape[0], -1)
-
-        return {
-            'f': denorm_x[0].tolist(),
-            'log10OmegaGW': denorm_y[0].tolist()
-        }
+            return {
+                'f': denorm_x[0].tolist(),
+                'log10OmegaGW': denorm_y[0].tolist()
+            }
