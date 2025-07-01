@@ -1,3 +1,5 @@
+import os
+
 import torch
 from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
@@ -5,7 +7,7 @@ import numpy as np
 from numpy import log10
 import warnings
 
-from .models import LSTM, Former
+from .models import LSTM, Former, CosmicNet2, RNN
 
 
 class GWDataset(Dataset):
@@ -15,8 +17,8 @@ class GWDataset(Dataset):
         params = np.array([[log10(item['r']), item['n_t'], log10(item['kappa10']),
                             log10(item['T_re']), item['DN_re'],
                             item['Omega_bh2'], item['Omega_ch2'], item['H0'], item['A_s']] for item in data])
-        curves = np.array([np.column_stack((item['f_interp'],
-                                            item['log10OmegaGW_interp']))
+        curves = np.array([np.column_stack((item['f_interp_85'],
+                                            item['log10OmegaGW_interp_85']))
                            for item in data])
 
         # split x and y
@@ -50,7 +52,7 @@ class GWDataset(Dataset):
 
 
 class GWPredictor:
-    def __init__(self, model_path='best_gw_model.pth', model_type='Transformer', device='cpu'):
+    def __init__(self, model_path=None, model_type='Transformer', device='cpu'):
         """
         Initialize the GWPredictor with specified model type and device.
 
@@ -64,12 +66,21 @@ class GWPredictor:
         if device == 'cuda' and not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available on this system")
 
-        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        if model_path is not None:
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        else:
+            model_dir = os.path.join(os.path.dirname(__file__), 'models')
+            model_path = os.path.join(model_dir, f'best_gw_model_{model_type}.pth')
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
         if model_type == 'LSTM':
             self.model = LSTM()
         elif model_type == 'Transformer':
             self.model = Former()
+        elif model_type == 'CosmicNet2':
+            self.model = CosmicNet2()
+        elif model_type == 'RNN':
+            self.model = RNN()
         else:
             raise ValueError("model_type must be 'LSTM' or 'Transformer'")
 
@@ -124,7 +135,7 @@ class GWPredictor:
             'Omega_ch2': (0.001, 0.99, 'linear'),
             'H0': (20, 100, 'linear'),
             # Convert ln(10^10 * A_s) range to A_s range
-            'A_s': (1.61 / (10 ** 10 * np.log(10)), 3.91 / (10 ** 10 * np.log(10)), 'linear')
+            'A_s': (np.exp(1.61) / 1e10, np.exp(3.91) / 1e10, 'linear')
         }
 
         for param, value in params_dict.items():
