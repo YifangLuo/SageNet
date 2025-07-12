@@ -136,17 +136,6 @@ class GWPredictor:
         if device == 'cuda' and not torch.cuda.is_available():
             raise RuntimeError("CUDA is not available on this system")
 
-        if model_path is not None:
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model checkpoint not found at {model_path}")
-            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-        else:
-            model_dir = os.path.join(os.path.dirname(__file__), 'models')
-            model_path = os.path.join(model_dir, f'best_gw_model_{model_type}.pth')
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Default model checkpoint not found at {model_path}")
-            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-
         # Initialize model based on type
         if model_type == 'LSTM':
             self.model = LSTM()
@@ -158,6 +147,17 @@ class GWPredictor:
             self.model = RNN()
         else:
             raise ValueError("model_type must be 'LSTM', 'Transformer', 'CosmicNet2', 'RNN', or 'Numerical'")
+
+        if model_path is not None:
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Model checkpoint not found at {model_path}")
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        else:
+            model_dir = os.path.join(os.path.dirname(__file__), 'models')
+            model_path = os.path.join(model_dir, f'best_gw_model_{model_type}.pth')
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Default model checkpoint not found at {model_path}")
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
         self.model.load_state_dict(checkpoint['model_state'])
         self.device = torch.device(device)
