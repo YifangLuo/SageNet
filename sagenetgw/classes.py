@@ -1,3 +1,4 @@
+"""import modules"""
 import os
 import torch
 from torch.utils.data import Dataset
@@ -11,21 +12,56 @@ from .stiffGWpy.stiff_SGWB import LCDM_SG as sg
 
 
 class Numerical:
+    """Numerical solver for computing SGWB spectra using stiffGWpy.
+    This class interfaces with the stiffGWpy package to numerically solve the tensor
+    wave equations for the inflationary SGWB with stiff amplification.
+    See https://github.com/bohuarolandli/stiffGWpy for more details.
+    """
+
     def __init__(self):
+        """Initialize a Numerical solver."""
         self.model = None
         return
 
     def solve(self, params_dict):
-        self.model = sg(r=params_dict['r'],
-                        n_t=params_dict['n_t'],
-                        kappa10=params_dict['kappa10'],
-                        T_re=params_dict['T_re'],
-                        DN_re=params_dict['DN_re'],
-                        Omega_bh2=params_dict['Omega_bh2'],
-                        Omega_ch2=params_dict['Omega_ch2'],
-                        H0=params_dict['H0'],
-                        A_s=params_dict['A_s'])
-        self.model.SGWB_iter()
+        """call the numerical methods and compute SGWB spectrum numerically, same as stiffGWpy.
+        Args:
+                params_dict (dict): Dictionary containing cosmological parameters:
+
+                    - r: Tensor-to-scalar ratio (logarithmic scale, [1e-40, 1]).
+                    - n_t: Tensor spectral index (linear scale, [-1, 6]).
+                    - kappa10: Curvature perturbation parameter (logarithmic scale, [1e-7, 1e3]).
+                    - T_re: Reheating temperature (logarithmic scale, [1e-3, 1e7] GeV).
+                    - DN_re: Number of e-folds during reheating (linear scale, [0, 40]).
+                    - Omega_bh2: Baryon density parameter ([0.005, 0.1]).
+                    - Omega_ch2: Cold dark matter density parameter ([0.001, 0.99]).
+                    - H0: Hubble constant ([20, 100] km/s/Mpc).
+                    - A_s: Scalar amplitude (exp(ln(10^10 * A_s)) in [1.61, 3.91]).
+        Returns:
+                tuple: (frequencies, log10OmegaGW) where frequencies is a numpy array of
+                    sampled frequencies and log10OmegaGW is the logarithmic SGWB spectrum.
+
+        Raises:
+                KeyError: If required parameters are missing in params_dict.
+        """
+        required_params = ['r', 'n_t', 'kappa10', 'T_re', 'DN_re', 'Omega_bh2', 'Omega_ch2', 'H0', 'A_s']
+        missing_params = [p for p in required_params if p not in params_dict]
+        if missing_params:
+            raise KeyError(f"Missing required parameters: {missing_params}")
+
+        self.model = sg(
+            r=params_dict['r'],
+            n_t=params_dict['n_t'],
+            kappa10=params_dict['kappa10'],
+            T_re=params_dict['T_re'],
+            DN_re=params_dict['DN_re'],
+            Omega_bh2=params_dict['Omega_bh2'],
+            Omega_ch2=params_dict['Omega_ch2'],
+            H0=params_dict['H0'],
+            A_s=params_dict['A_s']
+        )
+
+        self.model.SGWB_iter()  # Perform iterative numerical integration
         return self.model.f, self.model.log10OmegaGW
 
 
@@ -71,14 +107,24 @@ class GWDataset(Dataset):
 
 
 class GWPredictor:
+    """Neural network-based predictor for SGWB spectra.
+    This class loads a pretrained neural network model (Transformer, LSTM, RNN or CosmicNet2)
+    or uses a numerical solver to predict the SGWB spectrum based on cosmological parameters.
+    """
+
     def __init__(self, model_path=None, model_type='Transformer', device='cpu'):
-        """
-        Initialize the GWPredictor with specified model type and device.
+        """Initialize the GWPredictor with specified model type and device.
 
         Args:
-            model_path (str): Path to the pretrained model checkpoint.
-            model_type (str): Type of model ('LSTM' or 'Transformer').
+            model_path (str, optional): Path to the pretrained model checkpoint. If None,
+                loads the default model for the specified model_type.
+            model_type (str): Type of model ('LSTM', 'Transformer', 'CosmicNet2', 'RNN', or 'Numerical').
             device (str): Device to run the model on ('cpu' or 'cuda').
+
+        Raises:
+            ValueError: If model_type or device is invalid.
+            RuntimeError: If CUDA is specified but unavailable.
+            FileNotFoundError: If model_path or default model file does not exist.
         """
         self.model_type = model_type
         if model_type == 'Numerical':
@@ -91,12 +137,17 @@ class GWPredictor:
             raise RuntimeError("CUDA is not available on this system")
 
         if model_path is not None:
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Model checkpoint not found at {model_path}")
             checkpoint = torch.load(model_path, map_location=device, weights_only=False)
         else:
             model_dir = os.path.join(os.path.dirname(__file__), 'models')
             model_path = os.path.join(model_dir, f'best_gw_model_{model_type}.pth')
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Default model checkpoint not found at {model_path}")
             checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
+        # Initialize model based on type
         if model_type == 'LSTM':
             self.model = LSTM()
         elif model_type == 'Transformer':
@@ -106,7 +157,7 @@ class GWPredictor:
         elif model_type == 'RNN':
             self.model = RNN()
         else:
-            raise ValueError("model_type must be 'LSTM' or 'Transformer'")
+            raise ValueError("model_type must be 'LSTM', 'Transformer', 'CosmicNet2', 'RNN', or 'Numerical'")
 
         self.model.load_state_dict(checkpoint['model_state'])
         self.device = torch.device(device)
@@ -120,35 +171,34 @@ class GWPredictor:
         """
         Predict gravitational wave signal based on input parameters.
 
-        Parameter Descriptions:
-        ----------------------
-        r : float
-            Tensor-to-scalar ratio, logarithmically scaled in the range [1e-40, 1].
-        n_t : float
-            Tensor spectral index, linearly scaled in the range [-1, 6].
-        kappa10 : float
-            Curvature perturbation parameter, logarithmically scaled in the range [1e-7, 1e3].
-        T_re : float
-            Reheating temperature, logarithmically scaled in the range [1e-3, 1e7].
-        DN_re : float
-            Number of e-folds during reheating, linearly scaled in the range [0, 40].
-        Omega_bh2 : float
-            Baryon density parameter, in the range [0.005, 0.1].
-        Omega_ch2 : float
-            Cold dark matter density parameter, in the range [0.001, 0.99].
-        H0 : float
-            Hubble constant, in the range [20, 100].
-        A_s : float
-            Scalar amplitude, where ln(10^10 * A_s) is in the range [1.61, 3.91].
-
         Args:
-            params_dict (dict): Dictionary containing parameters:
-                r, n_t, kappa10, T_re, DN_re, Omega_bh2, Omega_ch2, H0, A_s
+            params_dict (dict): Dictionary containing cosmological parameters:
+
+                - r: Tensor-to-scalar ratio (logarithmic scale, [1e-40, 1]).
+                - n_t: Tensor spectral index (linear scale, [-1, 6]).
+                - kappa10: Curvature perturbation parameter (logarithmic scale, [1e-7, 1e3]).
+                - T_re: Reheating temperature (logarithmic scale, [1e-3, 1e7] GeV).
+                - DN_re: Number of e-folds during reheating (linear scale, [0, 40]).
+                - Omega_bh2: Baryon density parameter ([0.005, 0.1]).
+                - Omega_ch2: Cold dark matter density parameter ([0.001, 0.99]).
+                - H0: Hubble constant ([20, 100] km/s/Mpc).
+                - A_s: Scalar amplitude (exp(ln(10^10 * A_s)) in [1.61, 3.91]).
 
         Returns:
-            Dictionary with 'f' (frequency) and 'log10OmegaGW' (GW energy density).
+            dict: Dictionary with keys:
+                - 'f': List of frequency values.
+                - 'log10OmegaGW': List of logarithmic SGWB spectrum values.
 
+        Raises:
+            KeyError: If required parameters are missing in params_dict.
+            ValueError: If parameter values are invalid (e.g., non-positive for logarithmic scale).
         """
+
+        required_params = ['r', 'n_t', 'kappa10', 'T_re', 'DN_re', 'Omega_bh2', 'Omega_ch2', 'H0', 'A_s']
+        missing_params = [p for p in required_params if p not in params_dict]
+        if missing_params:
+            raise KeyError(f"Missing required parameters: {missing_params}")
+
         param_ranges = {
             'r': (1e-40, 1, 'logarithmic'),
             'n_t': (-1, 6, 'linear'),
