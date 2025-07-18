@@ -76,7 +76,7 @@ class LSTM(nn.Module):
         )
 
     def forward(self, x):
-        # encode param [B,5] -> [B,256]
+        # encode param [B,9] -> [B,256]
         encoded = self.encoder(x)
 
         # expand sequence [B,256] -> [B,256,256]
@@ -137,7 +137,7 @@ class RNN(nn.Module):
         )
 
     def forward(self, x):
-        # encode param [B,5] -> [B,256]
+        # encode param [B,9] -> [B,256]
         encoded = self.encoder(x)
 
         # expand sequence [B,256] -> [B,256,256]
@@ -148,6 +148,142 @@ class RNN(nn.Module):
 
         # decoded [B,256,256] -> [B,256,2]
         return self.decoder(rnn_out)
+
+
+class CNN(nn.Module):
+    def __init__(self, num_points=256):
+        super().__init__()
+        self.num_points = num_points
+
+        # Parameter encoder: [B, 9] -> [B, 256]
+        self.encoder = nn.Sequential(
+            nn.Linear(9, 128),
+            nn.GELU(),
+            nn.LayerNorm(128),
+            nn.Linear(128, 256),
+            nn.GELU(),
+            nn.LayerNorm(256)
+        )
+
+        # CNN layers: process sequence data
+        self.conv_layers = nn.Sequential(
+            nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.LayerNorm([256, num_points]),
+            nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.LayerNorm([256, num_points])
+        )
+
+        # Decoder: [B, 256, 256] -> [B, 256, 2]
+        self.decoder = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.Linear(128, 2)
+        )
+
+    def forward(self, x):
+        # Encode input: [B, 9] -> [B, 256]
+        encoded = self.encoder(x)
+
+        # Expand to sequence: [B, 256] -> [B, 256, 256]
+        seq = encoded.unsqueeze(1).repeat(1, self.num_points, 1)
+
+        # Transpose for Conv1d: [B, 256, 256] -> [B, 256, 256]
+        seq = seq.transpose(1, 2)
+
+        # Apply CNN: [B, 256, 256] -> [B, 256, 256]
+        conv_out = self.conv_layers(seq)
+
+        # Transpose back: [B, 256, 256] -> [B, 256, 256]
+        conv_out = conv_out.transpose(1, 2)
+
+        # Decode: [B, 256, 256] -> [B, 256, 2]
+        output = self.decoder(conv_out)
+
+        return output
+
+
+import torch
+import torch.nn as nn
+
+
+class TCNBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation, dropout=0.1):
+        super().__init__()
+        self.conv = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            dilation=dilation,
+            padding=(kernel_size - 1) * dilation,  # Causal padding
+            padding_mode='zeros'
+        )
+        self.gelu = nn.GELU()
+        self.norm = nn.LayerNorm(out_channels)
+        self.dropout = nn.Dropout(dropout)
+
+        # Residual connection
+        self.residual = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x):
+        # Input shape: [batch, in_channels, seq_len]
+        out = self.conv(x)[:, :, :x.size(2)]  # Crop padding to maintain seq_len
+        out = self.gelu(out)
+        out = out.permute(0, 2, 1)  # [batch, seq_len, channels] for LayerNorm
+        out = self.norm(out)
+        out = out.permute(0, 2, 1)  # [batch, channels, seq_len]
+        out = self.dropout(out)
+        return self.gelu(out + self.residual(x))
+
+
+class TCN(nn.Module):
+    def __init__(self, num_points=256, num_channels=256, kernel_size=3, dropout=0.1):
+        super().__init__()
+        self.num_points = num_points
+
+        # Parameter encoder: matches Former and LSTM
+        self.encoder = nn.Sequential(
+            nn.Linear(9, 128),
+            nn.GELU(),
+            nn.LayerNorm(128),
+            nn.Linear(128, 256),
+            nn.GELU(),
+            nn.LayerNorm(256)
+        )
+
+        # TCN blocks: 3 layers to match 3-layer LSTM/Transformer
+        self.tcn_blocks = nn.ModuleList([
+            TCNBlock(num_channels, num_channels, kernel_size, dilation=2 ** i, dropout=dropout)
+            for i in range(3)  # Dilations: 1, 2, 4
+        ])
+
+        # Decoder: matches Former and LSTM
+        self.decoder = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.Linear(128, 2)
+        )
+
+    def forward(self, x):
+        # x: [batch, 9]
+        # Encode parameters: [batch, 9] -> [batch, 256]
+        encoded = self.encoder(x)
+
+        # Expand to sequence: [batch, 256] -> [batch, 256, num_points]
+        seq = encoded.unsqueeze(-1).repeat(1, 1, self.num_points)
+
+        # TCN processing: [batch, 256, num_points]
+        for block in self.tcn_blocks:
+            seq = block(seq)
+
+        # Permute for decoder: [batch, 256, num_points] -> [batch, num_points, 256]
+        seq = seq.permute(0, 2, 1)
+
+        # Decode: [batch, num_points, 256] -> [batch, num_points, 2]
+        outputs = self.decoder(seq)
+
+        return outputs
 
 
 class ResidualBlock(nn.Module):

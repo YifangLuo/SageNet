@@ -4,9 +4,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist  # [CHANGE] Import distributed module
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler  # [CHANGE] Import DistributedSampler
 from sklearn.model_selection import train_test_split
-from sagenetgw.models import LSTM, Former, CosmicNet2, RNN
+from sagenetgw.models import LSTM, Former, CosmicNet2, RNN, CNN, TCN
 from sagenetgw.classes import GWDataset
 from tqdm import tqdm
 
@@ -29,10 +31,20 @@ def collate_fn(batch):
 
 def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32,
                    interp_percent=None):
+    # [CHANGE] Initialize distributed training
+    dist.init_process_group(backend='nccl')
+    rank = dist.get_rank()
+    local_rank = int(os.environ['LOCAL_RANK'])  # Get local rank for GPU assignment
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f'cuda:{local_rank}')
+
     raw_data = load_json_data(json_path, f_name=f'f_interp_{interp_percent}',
                               omega_name=f'log10OmegaGW_interp_{interp_percent}')
     full_dataset = GWDataset(raw_data, interp_percent=interp_percent)
-    print(f'JSON loaded. Total data num:{len(raw_data)}. model:{model}; percent:{interp_percent}')
+
+    # [CHANGE] Only print on rank 0 to avoid duplicate output
+    if rank == 0:
+        print(f'JSON loaded. Total data num:{len(raw_data)}. model:{model}; percent:{interp_percent}')
 
     train_idx, val_idx = train_test_split(
         np.arange(len(full_dataset)),
@@ -42,19 +54,23 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32,
     train_data = torch.utils.data.Subset(full_dataset, train_idx)
     val_data = torch.utils.data.Subset(full_dataset, val_idx)
 
+    # [CHANGE] Use DistributedSampler for training data
+    train_sampler = DistributedSampler(train_data, shuffle=True)
     train_loader = DataLoader(
         train_data,
         batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collate_fn
+        sampler=train_sampler,  # [CHANGE] Use sampler instead of shuffle=True
+        collate_fn=collate_fn,
+        num_workers=4,  # [CHANGE] Add num_workers for faster data loading
+        pin_memory=True  # [CHANGE] Enable pin_memory for faster data transfer to GPU
     )
     val_loader = DataLoader(
         val_data,
         batch_size=batch_size,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        num_workers=4,  # [CHANGE] Add num_workers
+        pin_memory=True  # [CHANGE] Enable pin_memory
     )
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model_name = model
     if model == 'LSTM':
@@ -65,8 +81,15 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32,
         model = CosmicNet2().to(device)
     elif model == 'RNN':
         model = RNN().to(device)
+    elif model == 'CNN':
+        model = CNN().to(device)
+    elif model == 'TCN':
+        model = TCN().to(device)
     else:
         raise ValueError(f'Unspecified model type "{model}".')
+
+    # [CHANGE] Wrap model with DDP
+    model = nn.parallel.DistributedDataParallel(model, device_ids=[local_rank])
 
     optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -76,12 +99,16 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32,
         patience=5
     )
     criterion = nn.MSELoss()
-    print(f'Model initialized. Start training. Current device:{device}')
+
+    # [CHANGE] Only print on rank 0
+    if rank == 0:
+        print(f'Model initialized. Start training. Current device:{device}')
 
     best_loss = float('inf')
-    for epoch in tqdm(range(epochs)):
+    for epoch in range(epochs):
         model.train()
         train_loss = 0.0
+        train_sampler.set_epoch(epoch)  # [CHANGE] Ensure different data shuffling each epoch
 
         for params, curves in train_loader:
             params = params.to(device)
@@ -89,9 +116,6 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32,
             optimizer.zero_grad()
             outputs = model(params)
             loss = criterion(outputs, curves)
-            # loss_last = criterion(outputs[:,-1, :], curves[:,-1,:]) * 5.0  # 权重设为5
-            # loss_rest = criterion(outputs[:, :, :], curves[:, :, :])
-            # loss = loss_last + loss_rest
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -108,28 +132,45 @@ def train_gw_model(json_path, model="Transformer", epochs=200, batch_size=32,
                 outputs = model(params)
                 val_loss += criterion(outputs, curves).item() * params.size(0)
 
-        # train_loss /= len(train_loader.dataset)
-        # val_loss /= len(val_loader.dataset)
-        train_loss /= len(train_loader)
-        val_loss /= len(val_loader)
+        # [CHANGE] Fix loss normalization: divide by dataset size, not number of batches
+        train_loss /= len(train_data)
+        val_loss /= len(val_data)
+
+        # [CHANGE] Aggregate losses across GPUs
+        train_loss_tensor = torch.tensor(train_loss).to(device)
+        val_loss_tensor = torch.tensor(val_loss).to(device)
+        dist.all_reduce(train_loss_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
+        train_loss = train_loss_tensor.item() / dist.get_world_size()
+        val_loss = val_loss_tensor.item() / dist.get_world_size()
+
         scheduler.step(val_loss)
 
-        print(f"Epoch {epoch + 1}/{epochs}")
-        print(f"Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e}")
+        # [CHANGE] Only print and save on rank 0
+        if rank == 0:
+            print(f"Epoch {epoch + 1}/{epochs}")
+            print(f"Train Loss: {train_loss:.4e} | Val Loss: {val_loss:.4e}")
 
-        if val_loss < best_loss:
-            best_loss = val_loss
-            torch.save({
-                'model_state': model.state_dict(),
-                'x_scaler': full_dataset.x_scaler,
-                'y_scaler': full_dataset.y_scaler,
-                'param_scaler': full_dataset.param_scaler
-            }, f'best_gw_model_{model_name}_{len(raw_data)}.pth')
+            if val_loss < best_loss:
+                best_loss = val_loss
+                torch.save({
+                    'model_state': model.state_dict(),
+                    'x_scaler': full_dataset.x_scaler,
+                    'y_scaler': full_dataset.y_scaler,
+
+                    'param_scaler': full_dataset.param_scaler
+                }, f'best_gw_model_{model_name}_{interp_percent}_{len(raw_data)}.pth')
+
+    # [CHANGE] Clean up distributed process group
+    dist.destroy_process_group()
 
     return model
 
 
 if __name__ == "__main__":
+    # [CHANGE] Import os for environment variables
+    import os
+
     parser = argparse.ArgumentParser(description='Train the model by specific dataset.')
     parser.add_argument('--percent', type=int, required=True,
                         help='interp percent')

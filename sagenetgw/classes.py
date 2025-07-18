@@ -66,14 +66,14 @@ class Numerical:
 
 
 class GWDataset(Dataset):
-    def __init__(self, data, x_scaler=None, y_scaler=None, param_scaler=None, fit_scalers=True):
+    def __init__(self, data, x_scaler=None, y_scaler=None, param_scaler=None, fit_scalers=True, interp_percent=60):
         self.data = data
 
         params = np.array([[log10(item['r']), item['n_t'], log10(item['kappa10']),
                             log10(item['T_re']), item['DN_re'],
                             item['Omega_bh2'], item['Omega_ch2'], item['H0'], item['A_s']] for item in data])
-        curves = np.array([np.column_stack((item['f_interp_85'],
-                                            item['log10OmegaGW_interp_85']))
+        curves = np.array([np.column_stack((item[f'f_interp_{interp_percent}'],
+                                            item[f'log10OmegaGW_interp_{interp_percent}']))
                            for item in data])
 
         # split x and y
