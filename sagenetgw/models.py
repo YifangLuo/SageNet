@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class Former(nn.Module):
@@ -207,42 +208,38 @@ class CNN(nn.Module):
 import torch
 import torch.nn as nn
 
-
 class TCNBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, dilation, dropout=0.1):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation):
         super().__init__()
+        # Causal padding: (kernel_size - 1) * dilation
+        padding = (kernel_size - 1) * dilation
         self.conv = nn.Conv1d(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
+            padding=padding,
             dilation=dilation,
-            padding=(kernel_size - 1) * dilation,  # Causal padding
             padding_mode='zeros'
         )
+        self.norm = nn.LayerNorm([out_channels, 256])
         self.gelu = nn.GELU()
-        self.norm = nn.LayerNorm(out_channels)
-        self.dropout = nn.Dropout(dropout)
-
         # Residual connection
         self.residual = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
 
     def forward(self, x):
-        # Input shape: [batch, in_channels, seq_len]
-        out = self.conv(x)[:, :, :x.size(2)]  # Crop padding to maintain seq_len
+        # Causal conv: trim padding from right to ensure causality
+        out = self.conv(x)[:, :, :-(self.conv.padding[0])]
         out = self.gelu(out)
-        out = out.permute(0, 2, 1)  # [batch, seq_len, channels] for LayerNorm
         out = self.norm(out)
-        out = out.permute(0, 2, 1)  # [batch, channels, seq_len]
-        out = self.dropout(out)
-        return self.gelu(out + self.residual(x))
-
+        # Add residual connection
+        return out + self.residual(x)
 
 class TCN(nn.Module):
-    def __init__(self, num_points=256, num_channels=256, kernel_size=3, dropout=0.1):
+    def __init__(self, num_points=256):
         super().__init__()
         self.num_points = num_points
 
-        # Parameter encoder: matches Former and LSTM
+        # Parameter encoder: [B, 9] -> [B, 256]
         self.encoder = nn.Sequential(
             nn.Linear(9, 128),
             nn.GELU(),
@@ -252,13 +249,14 @@ class TCN(nn.Module):
             nn.LayerNorm(256)
         )
 
-        # TCN blocks: 3 layers to match 3-layer LSTM/Transformer
-        self.tcn_blocks = nn.ModuleList([
-            TCNBlock(num_channels, num_channels, kernel_size, dilation=2 ** i, dropout=dropout)
-            for i in range(3)  # Dilations: 1, 2, 4
-        ])
+        # TCN layers with increasing dilations
+        self.tcn_layers = nn.Sequential(
+            TCNBlock(in_channels=256, out_channels=256, kernel_size=3, dilation=1),
+            TCNBlock(in_channels=256, out_channels=256, kernel_size=3, dilation=2),
+            TCNBlock(in_channels=256, out_channels=256, kernel_size=3, dilation=4)
+        )
 
-        # Decoder: matches Former and LSTM
+        # Decoder: [B, 256, 256] -> [B, 256, 2]
         self.decoder = nn.Sequential(
             nn.Linear(256, 128),
             nn.GELU(),
@@ -266,34 +264,22 @@ class TCN(nn.Module):
         )
 
     def forward(self, x):
-        # x: [batch, 9]
-        # Encode parameters: [batch, 9] -> [batch, 256]
+        # Encode input: [B, 9] -> [B, 256]
         encoded = self.encoder(x)
 
-        # Expand to sequence: [batch, 256] -> [batch, 256, num_points]
-        seq = encoded.unsqueeze(-1).repeat(1, 1, self.num_points)
+        # Expand to sequence: [B, 256] -> [B, 256, 256]
+        seq = encoded.unsqueeze(1).repeat(1, self.num_points, 1)
 
-        # TCN processing: [batch, 256, num_points]
-        for block in self.tcn_blocks:
-            seq = block(seq)
+        # Transpose for Conv1d: [B, 256, 256] -> [B, 256, 256]
+        seq = seq.transpose(1, 2)
 
-        # Permute for decoder: [batch, 256, num_points] -> [batch, num_points, 256]
-        seq = seq.permute(0, 2, 1)
+        # Apply TCN: [B, 256, 256] -> [B, 256, 256]
+        tcn_out = self.tcn_layers(seq)
 
-        # Decode: [batch, num_points, 256] -> [batch, num_points, 2]
-        outputs = self.decoder(seq)
+        # Transpose back: [B, 256, 256] -> [B, 256, 256]
+        tcn_out = tcn_out.transpose(1, 2)
 
-        return outputs
+        # Decode: [B, 256, 256] -> [B, 256, 2]
+        output = self.decoder(tcn_out)
 
-
-class ResidualBlock(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Linear(dim, dim),
-            nn.GELU(),
-            nn.LayerNorm(dim)
-        )
-
-    def forward(self, x):
-        return x + self.block(x)
+        return output

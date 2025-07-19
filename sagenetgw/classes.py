@@ -7,7 +7,7 @@ import numpy as np
 from numpy import log10
 import warnings
 
-from .models import LSTM, Former, CosmicNet2, RNN
+from .models import LSTM, Former, CosmicNet2, RNN, CNN, TCN
 from .stiffGWpy.stiff_SGWB import LCDM_SG as sg
 
 
@@ -145,6 +145,10 @@ class GWPredictor:
             self.model = CosmicNet2()
         elif model_type == 'RNN':
             self.model = RNN()
+        elif model_type == 'CNN':
+            self.model = CNN()
+        elif model_type == 'TCN':
+            self.model = TCN()
         else:
             raise ValueError("model_type must be 'LSTM', 'Transformer', 'CosmicNet2', 'RNN', or 'Numerical'")
 
