@@ -24,4 +24,4 @@ def fix_pth_file(input_path, output_path):
 
 
 if __name__ == "__main__":
-    fix_pth_file('best_gw_model_LSTM_60_185578.pth', 'best_gw_model_LSTM_60_185578.pth')
+    fix_pth_file('best_gw_model_LSTM.pth', 'best_gw_model_LSTM.pth')
