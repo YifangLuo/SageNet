@@ -7,7 +7,7 @@ import numpy as np
 from numpy import log10
 import warnings
 
-from .models import LSTM, Former, CosmicNet2, RNN, CNN, TCN
+from .models import *
 from .stiffGWpy.stiff_SGWB import LCDM_SG as sg
 
 
@@ -149,6 +149,8 @@ class GWPredictor:
             self.model = CNN()
         elif model_type == 'TCN':
             self.model = TCN()
+        elif model_type == 'GRU':
+            self.model = GRU()
         else:
             raise ValueError("model_type must be 'LSTM', 'Transformer', 'CosmicNet2', 'RNN', or 'Numerical'")
 

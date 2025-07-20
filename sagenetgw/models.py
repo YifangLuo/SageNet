@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class Former(nn.Module):
@@ -204,10 +203,6 @@ class CNN(nn.Module):
 
         return output
 
-
-import torch
-import torch.nn as nn
-
 class TCNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, dilation):
         super().__init__()
@@ -283,3 +278,51 @@ class TCN(nn.Module):
         output = self.decoder(tcn_out)
 
         return output
+
+
+class GRU(nn.Module):
+    def __init__(self, num_points=256):
+        super().__init__()
+        self.num_points = num_points
+
+        # Parameter encoder: matches Former and LSTM
+        self.encoder = nn.Sequential(
+            nn.Linear(9, 128),
+            nn.GELU(),
+            nn.LayerNorm(128),
+            nn.Linear(128, 256),
+            nn.GELU(),
+            nn.LayerNorm(256)
+        )
+
+        # GRU: 3 layers to match LSTM and Transformer
+        self.gru = nn.GRU(
+            input_size=256,
+            hidden_size=256,
+            num_layers=3,
+            batch_first=True,
+            bidirectional=False
+        )
+
+        # Decoder: matches Former and LSTM
+        self.decoder = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.Linear(128, 2)
+        )
+
+    def forward(self, x):
+        # x: [batch, 9]
+        # Encode parameters: [batch, 9] -> [batch, 256]
+        encoded = self.encoder(x)
+
+        # Expand to sequence: [batch, 256] -> [batch, num_points, 256]
+        seq = encoded.unsqueeze(1).repeat(1, self.num_points, 1)
+
+        # GRU processing: [batch, num_points, 256] -> [batch, num_points, 256]
+        gru_out, _ = self.gru(seq)
+
+        # Decode: [batch, num_points, 256] -> [batch, num_points, 2]
+        outputs = self.decoder(gru_out)
+
+        return outputs
