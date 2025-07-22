@@ -1,3 +1,4 @@
+"""Models"""
 import torch
 import torch.nn as nn
 
@@ -325,4 +326,49 @@ class GRU(nn.Module):
         # Decode: [batch, num_points, 256] -> [batch, num_points, 2]
         outputs = self.decoder(gru_out)
 
+        return outputs
+
+
+### EXPERIMENTAL ###
+class VarFormer(nn.Module):
+    def __init__(self, num_points=256):
+        super().__init__()
+        self.num_points = num_points
+
+        self.param_encoder = nn.Sequential(
+            nn.Linear(9, 128),
+            nn.GELU(),
+            nn.LayerNorm(128),
+            nn.Linear(128, 256),
+            nn.GELU(),
+            nn.LayerNorm(256)
+        )
+
+        self.position_embed = nn.Embedding(num_points, 256)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=256,
+            nhead=8,
+            dim_feedforward=512,
+            dropout=0.1,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=3)
+
+        self.decoder = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.Linear(128, 2)
+        )
+
+    def forward(self, x, mask=None):
+        encoded_params = self.param_encoder(x)
+        seq = encoded_params.unsqueeze(1).repeat(1, self.num_points, 1)
+        positions = torch.arange(self.num_points, device=x.device).unsqueeze(0)
+        pos_embed = self.position_embed(positions)
+        seq += pos_embed
+        transformed = self.transformer(seq, src_key_padding_mask=(mask == 0) if mask is not None else None)
+        outputs = self.decoder(transformed)
         return outputs
