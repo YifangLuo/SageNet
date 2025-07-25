@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 
-def load_test_results(output_file="./model_results.json"):
+def load_test_results(output_file="./model_results_cdf.json"):
     """
     load (legacy version)
     """
@@ -20,7 +20,7 @@ def load_test_results(output_file="./model_results.json"):
     return restored_results
 
 
-def save(results, filename="model_results.json"):
+def save(results, filename="model_results_cdf.json"):
     """
     save
     """
@@ -40,7 +40,7 @@ def save(results, filename="model_results.json"):
     print(f"Results saved to {output_file}")
 
 
-def load(filename='model_results.json'):
+def load(filename='model_results_cdf.json'):
     """
     load
     """

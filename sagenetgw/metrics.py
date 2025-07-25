@@ -93,9 +93,9 @@ def calculate_endpoints(true_coords, pred_coords):
     Endpoint errors.
     """
     f_true, log10OmegaGW_true, f_pred, log10OmegaGW_pred = sort_coords(true_coords=true_coords, pred_coords=pred_coords)
-    true_len = max(f_true) - min(f_true)
+    # true_len = max(f_true) - min(f_true)
     endpoints_error = abs(min(f_true) - min(f_pred)) + abs(max(f_true) - max(f_pred))
-    return endpoints_error / true_len * 100
+    return endpoints_error * np.log(10)
 
 
 # NOTE: This metrics is not suitable because the log10omegaGW value is logarithmic.
@@ -169,3 +169,34 @@ def calculate_smape(true_coords, pred_coords):
                           (np.abs(log10OmegaGW_true) + np.abs(log10OmegaGW_true) + 1e-10))
 
     return smape
+
+def calculate_difference_grid(true_coords, pred_coords):
+    """
+    Calculate the absolute error distribution between the predicted and true curves at each frequency point.
+    pred_coords: predicted point coordinates, shape = (n, 2), [f, log10OmegaGW]
+    true_coords: true point coordinates, shape = (m, 2), [f, log10OmegaGW]
+    Return: (f_grid, abs_error_grid)
+        - f_grid: array of frequency points, shape = (10000,)
+        - abs_error_grid: array of absolute differences |log10OmegaGW_true - log10OmegaGW_pred|, shape = (10000,)
+    """
+    f_true, log10OmegaGW_true, f_pred, log10OmegaGW_pred = sort_coords(true_coords=true_coords, pred_coords=pred_coords)
+
+    f_min = max(min(f_true), min(f_pred))
+    f_max = min(max(f_true), max(f_pred))
+    if f_min >= f_max:
+        warnings.warn("Warning: Detected f_min >= f_max. This implies there is an invalid curve.")
+        return np.array([]), np.array([])  # Return empty arrays for invalid cases
+
+    # Interpolation using PchipInterpolator
+    cs_true = PchipInterpolator(f_true, log10OmegaGW_true)
+    cs_pred = PchipInterpolator(f_pred, log10OmegaGW_pred)
+
+    # Create fine grid for evaluation
+    f_grid = np.linspace(f_min, f_max, 10000)
+    log10OmegaGW_true_grid = cs_true(f_grid)
+    log10OmegaGW_pred_grid = cs_pred(f_grid)
+
+    # Calculate absolute error at each grid point
+    abs_error_grid = np.abs(log10OmegaGW_true_grid - log10OmegaGW_pred_grid)
+
+    return f_grid, abs_error_grid
