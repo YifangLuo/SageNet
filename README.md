@@ -82,8 +82,8 @@ The following cosmological parameters are supported:
 
 If you use SageNet+ in your research, please cite:
 
-> Zhang, F., Luo, Y., Li, B., et al. (2025). SageNet: Fast Neural Network Emulation of the Stiff-amplified Gravitational
-> Waves from Inflation. arXiv:2504.04054.
+> Zhang F, Luo Y, Li B, et al. (2025) SageNet: Fast Neural Network Emulation of the Stiff-amplified Gravitational
+> Waves from Inflation. The Astrophysical Journal Supplement Series. 2025;279(2):44. doi:10.3847/1538-4365/ade4c6
 
 ## License
 
