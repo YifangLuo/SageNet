@@ -12,6 +12,8 @@ dependencies = [
     "numpy>=1.21.0",
     "torch>=1.9.0",
     "scikit-learn>=1.6.1",
+    "scipy>=1.8.0",
+    "astropy>=5.0.0",
 ]
 keywords = ["gravitational waves", "neural networks", "machine learning"]
 classifiers = [
