@@ -327,39 +327,39 @@ class GWPredictor:
         Internal automatic processing:
             predict()
             -> sort/clean/unique spectrum
-            -> compute dnnu
-            -> if Delta N_eff > 5, dnnu=NaN and log10OmegaGW=NaN
+            -> compute delta_N_eff
+            -> if Delta N_eff > 5, delta_N_eff=NaN and log10OmegaGW=NaN
 
-        Users do not need to call any sorting or dnnu helper manually.
+        Users do not need to call any sorting or delta_N_eff helper manually.
         """
         _check_required_params(params_dict)
 
         prediction = self.predict_value(params_dict)
 
-        from .delta_N_eff import compute_dnnu
+        from .delta_N_eff import compute_delta_N_eff
         from .delta_N_eff.api import _sort_prediction_spectrum_for_output
 
         prediction = _sort_prediction_spectrum_for_output(prediction)
 
-        result = compute_dnnu(
+        result = compute_delta_N_eff(
             prediction,
             H0=float(params_dict["H0"]),
             sample_index=_sample_index,
         )
 
-        prediction["dnnu"] = float(result.dnnu)
-        prediction["dnnu_raw"] = float(result.dnnu_raw)
-        prediction["dnnu_g2"] = float(result.g2)
-        prediction["dnnu_rejected"] = bool(result.rejected)
-        prediction["dnnu_rejected_reason"] = result.rejected_reason
-        prediction["dnnu_diagnostics"] = result.diagnostics
+        prediction["delta_N_eff"] = float(result.delta_N_eff)
+        prediction["delta_N_eff_raw"] = float(result.delta_N_eff_raw)
+        prediction["delta_N_eff_g2"] = float(result.g2)
+        prediction["delta_N_eff_rejected"] = bool(result.rejected)
+        prediction["delta_N_eff_rejected_reason"] = result.rejected_reason
+        prediction["delta_N_eff_diagnostics"] = result.diagnostics
 
-        if result.rejected and result.rejected_reason == "dnnu_above_5":
+        if result.rejected and result.rejected_reason == "delta_N_eff_above_5":
             prediction = _mask_extrapolated_curve(prediction)
 
         return prediction
 
-    def predict_batch_with_dnnu(self, params_list):
+    def predict_batch_with_delta_N_eff(self, params_list):
         """
         Predict SGWB spectra and Delta N_eff for a list of parameter dictionaries.
 
@@ -369,7 +369,7 @@ class GWPredictor:
         """
         if not isinstance(params_list, (list, tuple)):
             raise TypeError(
-                "predict_batch_with_dnnu expects a list or tuple of parameter dictionaries."
+                "predict_batch_with_delta_N_eff expects a list or tuple of parameter dictionaries."
             )
 
         predictions = []
@@ -387,17 +387,28 @@ class GWPredictor:
         return {
             "f": _stack_if_rectangular(f_values),
             "log10OmegaGW": _stack_if_rectangular(y_values),
-            "dnnu": np.asarray([p["dnnu"] for p in predictions], dtype=float),
-            "dnnu_raw": np.asarray([p["dnnu_raw"] for p in predictions], dtype=float),
-            "dnnu_g2": np.asarray([p["dnnu_g2"] for p in predictions], dtype=float),
-            "dnnu_rejected": np.asarray(
-                [p["dnnu_rejected"] for p in predictions],
+            "delta_N_eff": np.asarray(
+                [p["delta_N_eff"] for p in predictions],
+                dtype=float,
+            ),
+            "delta_N_eff_raw": np.asarray(
+                [p["delta_N_eff_raw"] for p in predictions],
+                dtype=float,
+            ),
+            "delta_N_eff_g2": np.asarray(
+                [p["delta_N_eff_g2"] for p in predictions],
+                dtype=float,
+            ),
+            "delta_N_eff_rejected": np.asarray(
+                [p["delta_N_eff_rejected"] for p in predictions],
                 dtype=bool,
             ),
-            "dnnu_rejected_reason": np.asarray(
-                [p["dnnu_rejected_reason"] for p in predictions],
+            "delta_N_eff_rejected_reason": np.asarray(
+                [p["delta_N_eff_rejected_reason"] for p in predictions],
                 dtype=object,
             ),
-            "dnnu_diagnostics": [p["dnnu_diagnostics"] for p in predictions],
+            "delta_N_eff_diagnostics": [
+                p["delta_N_eff_diagnostics"] for p in predictions
+            ],
             "predictions": predictions,
         }

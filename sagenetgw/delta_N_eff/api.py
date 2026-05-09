@@ -9,7 +9,7 @@ Design:
         -> Delta N_eff
 
 Fixed non-extrapolation rule:
-    Delta N_eff > 5  => extrapolated, dnnu = NaN, print a message, continue.
+    Delta N_eff > 5  => extrapolated, delta_N_eff = NaN, print a message, continue.
 
 No user-facing interpolation options, no user-facing extrapolation threshold,
 and no option to keep extrapolated curves.
@@ -28,26 +28,26 @@ from .constants import ln10
 from .integrator import InterpLogOmegaPCHIP, adaptive_simpson_interpolated
 from .utils import (
     clean_sort_unique,
-    g2_to_dnnu,
+    g2_to_delta_N_eff,
     maybe_log10f,
-    simpson_atol_from_dnnu_tol,
+    simpson_atol_from_delta_N_eff_tol,
 )
 
 
-_DNNU_TOL_ABS: float = 1e-6
+_DELTA_N_EFF_TOL_ABS: float = 1e-6
 _SIMPSON_RTOL: float = 1e-5
 _SIMPSON_MAX_DEPTH: int = 35
 _SIMPSON_MAX_EVALS: int = 500_000
 _CLAMP_LOG10OMEGA_NONFINITE_TO: float = -300.0
 
-_DNNU_MIN_ALLOWED: float = 0.0
-_DNNU_MAX_ALLOWED: float = 5.0
+_DELTA_N_EFF_MIN_ALLOWED: float = 0.0
+_DELTA_N_EFF_MAX_ALLOWED: float = 5.0
 
 
 @dataclass(frozen=True)
-class DnnuResult:
-    dnnu: float
-    dnnu_raw: float
+class DeltaNEffResult:
+    delta_N_eff: float
+    delta_N_eff_raw: float
     g2: float
     rejected: bool
     rejected_reason: str
@@ -55,9 +55,9 @@ class DnnuResult:
 
 
 @dataclass(frozen=True)
-class DnnuBatchResult:
-    dnnu: np.ndarray
-    dnnu_raw: np.ndarray
+class DeltaNEffBatchResult:
+    delta_N_eff: np.ndarray
+    delta_N_eff_raw: np.ndarray
     g2: np.ndarray
     rejected: np.ndarray
     rejected_reason: np.ndarray
@@ -90,7 +90,7 @@ def _sort_prediction_spectrum_for_output(
     Internal helper used by GWPredictor.
 
     Sort, clean, and deduplicate the returned SageNet spectrum using the
-    same frequency-ordering logic as the dnnu integrator.
+    same frequency-ordering logic as the delta_N_eff integrator.
 
     This function is intentionally not exported as public API.
     """
@@ -135,79 +135,79 @@ def _sort_prediction_spectrum_for_output(
     sorted_prediction = dict(prediction)
     sorted_prediction["f"] = f_sorted.tolist()
     sorted_prediction["log10OmegaGW"] = y_sorted.tolist()
-    sorted_prediction["dnnu_f_mode"] = f_mode
+    sorted_prediction["delta_N_eff_f_mode"] = f_mode
     sorted_prediction["spectrum_sorted"] = True
 
     return sorted_prediction
 
 
-def _dnnu_verbose_rejection_enabled() -> bool:
+def _delta_N_eff_verbose_rejection_enabled() -> bool:
     return os.environ.get(
-        "SAGENET_DNNU_VERBOSE_REJECTION", "0"
+        "SAGENET_DELTA_N_EFF_VERBOSE_REJECTION", "0"
     ).lower() in {"1", "true", "yes", "on"}
 
 
-def _print_dnnu_rejection_message(
+def _print_delta_N_eff_rejection_message(
     *,
-    dnnu_raw: float,
+    delta_N_eff_raw: float,
     sample_index: Optional[int] = None,
 ) -> None:
-    if not _dnnu_verbose_rejection_enabled():
+    if not _delta_N_eff_verbose_rejection_enabled():
         return
 
     if sample_index is None:
         msg = (
-            "[SageNet dnnu] Extrapolated prediction rejected because "
-            f"Delta N_eff={dnnu_raw:.8g} > 5. "
-            "The corresponding dnnu is recorded as NaN."
+            "[SageNet delta_N_eff] Extrapolated prediction rejected because "
+            f"Delta N_eff={delta_N_eff_raw:.8g} > 5. "
+            "The corresponding delta_N_eff is recorded as NaN."
         )
     else:
         msg = (
-            f"[SageNet dnnu] sample {sample_index}: "
+            f"[SageNet delta_N_eff] sample {sample_index}: "
             "extrapolated prediction rejected because "
-            f"Delta N_eff={dnnu_raw:.8g} > 5. "
-            "The corresponding dnnu is recorded as NaN."
+            f"Delta N_eff={delta_N_eff_raw:.8g} > 5. "
+            "The corresponding delta_N_eff is recorded as NaN."
         )
 
     print(msg, file=sys.stderr)
 
 
-def _apply_fixed_dnnu_gate(
+def _apply_fixed_delta_N_eff_gate(
     *,
-    dnnu_raw: float,
+    delta_N_eff_raw: float,
     diag: Dict[str, Any],
     sample_index: Optional[int] = None,
 ) -> Tuple[float, bool, str]:
     rejected = False
     reason = ""
 
-    if not np.isfinite(dnnu_raw):
+    if not np.isfinite(delta_N_eff_raw):
         rejected = True
-        reason = "dnnu_nonfinite"
-    elif dnnu_raw < _DNNU_MIN_ALLOWED:
+        reason = "delta_N_eff_nonfinite"
+    elif delta_N_eff_raw < _DELTA_N_EFF_MIN_ALLOWED:
         rejected = True
-        reason = "dnnu_below_0"
-    elif dnnu_raw > _DNNU_MAX_ALLOWED:
+        reason = "delta_N_eff_below_0"
+    elif delta_N_eff_raw > _DELTA_N_EFF_MAX_ALLOWED:
         rejected = True
-        reason = "dnnu_above_5"
+        reason = "delta_N_eff_above_5"
 
-    dnnu = float("nan") if rejected else float(dnnu_raw)
+    delta_N_eff = float("nan") if rejected else float(delta_N_eff_raw)
 
-    diag["dnnu_raw"] = float(dnnu_raw)
-    diag["dnnu"] = float(dnnu)
-    diag["dnnu_rejected"] = bool(rejected)
-    diag["dnnu_rejected_reason"] = reason
-    diag["dnnu_extrapolated"] = bool(reason == "dnnu_above_5")
-    diag["dnnu_min_allowed"] = float(_DNNU_MIN_ALLOWED)
-    diag["dnnu_max_allowed"] = float(_DNNU_MAX_ALLOWED)
+    diag["delta_N_eff_raw"] = float(delta_N_eff_raw)
+    diag["delta_N_eff"] = float(delta_N_eff)
+    diag["delta_N_eff_rejected"] = bool(rejected)
+    diag["delta_N_eff_rejected_reason"] = reason
+    diag["delta_N_eff_extrapolated"] = bool(reason == "delta_N_eff_above_5")
+    diag["delta_N_eff_min_allowed"] = float(_DELTA_N_EFF_MIN_ALLOWED)
+    diag["delta_N_eff_max_allowed"] = float(_DELTA_N_EFF_MAX_ALLOWED)
 
-    if reason == "dnnu_above_5":
-        _print_dnnu_rejection_message(
-            dnnu_raw=float(dnnu_raw),
+    if reason == "delta_N_eff_above_5":
+        _print_delta_N_eff_rejection_message(
+            delta_N_eff_raw=float(delta_N_eff_raw),
             sample_index=sample_index,
         )
 
-    return float(dnnu), bool(rejected), reason
+    return float(delta_N_eff), bool(rejected), reason
 
 
 def compute_g2(
@@ -242,9 +242,9 @@ def compute_g2(
 
     g2_trapz = float(integrate.trapezoid(y=omega_native, x=x) * ln10)
 
-    simpson_atol = simpson_atol_from_dnnu_tol(
+    simpson_atol = simpson_atol_from_delta_N_eff_tol(
         H0=float(H0),
-        dnnu_tol_abs=_DNNU_TOL_ABS,
+        delta_N_eff_tol_abs=_DELTA_N_EFF_TOL_ABS,
     )
 
     f_interp = InterpLogOmegaPCHIP(x, ylog)
@@ -290,8 +290,8 @@ def compute_g2(
         "f_mode": f_mode,
         "n_input_points": int(np.asarray(f_like).size),
         "n_clean_points": int(x.size),
-        "dnnu_tol_abs": float(_DNNU_TOL_ABS),
-        "simpson_atol_raw_from_dnnu": float(simpson_atol),
+        "delta_N_eff_tol_abs": float(_DELTA_N_EFF_TOL_ABS),
+        "simpson_atol_raw_from_delta_N_eff": float(simpson_atol),
         "g2_trapz": float(g2_trapz),
         "g2_final": float(g2_final),
         "g2_rel_diff_vs_native_trapz": rel_diff,
@@ -303,21 +303,21 @@ def compute_g2(
     return float(g2_final), diag
 
 
-def compute_dnnu(
+def compute_delta_N_eff(
     prediction_or_f,
     log10OmegaGW=None,
     *,
     H0: float,
     sample_index: Optional[int] = None,
-) -> DnnuResult:
+) -> DeltaNEffResult:
     """
     Compute Delta N_eff for one SageNet spectrum.
 
     If Delta N_eff > 5:
         - print a message
-        - return dnnu = NaN
+        - return delta_N_eff = NaN
         - rejected = True
-        - rejected_reason = "dnnu_above_5"
+        - rejected_reason = "delta_N_eff_above_5"
         - do not raise
     """
     f_like, log_like = _extract_prediction_arrays(
@@ -331,17 +331,17 @@ def compute_dnnu(
         H0=float(H0),
     )
 
-    dnnu_raw = float(g2_to_dnnu(g2, H0=float(H0)))
+    delta_N_eff_raw = float(g2_to_delta_N_eff(g2, H0=float(H0)))
 
-    dnnu, rejected, reason = _apply_fixed_dnnu_gate(
-        dnnu_raw=dnnu_raw,
+    delta_N_eff, rejected, reason = _apply_fixed_delta_N_eff_gate(
+        delta_N_eff_raw=delta_N_eff_raw,
         diag=diag,
         sample_index=sample_index,
     )
 
-    return DnnuResult(
-        dnnu=float(dnnu),
-        dnnu_raw=float(dnnu_raw),
+    return DeltaNEffResult(
+        delta_N_eff=float(delta_N_eff),
+        delta_N_eff_raw=float(delta_N_eff_raw),
         g2=float(g2),
         rejected=bool(rejected),
         rejected_reason=reason,
@@ -393,19 +393,19 @@ def _select_spectrum_row(
     return f_i, y_i
 
 
-def compute_dnnu_batch(
+def compute_delta_N_eff_batch(
     prediction_or_f,
     log10OmegaGW=None,
     *,
     H0,
-) -> DnnuBatchResult:
+) -> DeltaNEffBatchResult:
     """
     Compute Delta N_eff for a batch/matrix of spectra.
 
     If one sample has Delta N_eff > 5:
-        dnnu[i] = NaN
+        delta_N_eff[i] = NaN
         rejected[i] = True
-        rejected_reason[i] = "dnnu_above_5"
+        rejected_reason[i] = "delta_N_eff_above_5"
 
     The loop continues.
     """
@@ -428,8 +428,8 @@ def compute_dnnu_batch(
 
     h0_vec = _as_h0_vector(H0, n_samples)
 
-    dnnu = np.full(n_samples, np.nan, dtype=float)
-    dnnu_raw = np.full(n_samples, np.nan, dtype=float)
+    delta_N_eff = np.full(n_samples, np.nan, dtype=float)
+    delta_N_eff_raw = np.full(n_samples, np.nan, dtype=float)
     g2 = np.full(n_samples, np.nan, dtype=float)
     rejected = np.zeros(n_samples, dtype=bool)
     rejected_reason = np.full(n_samples, "", dtype=object)
@@ -443,23 +443,23 @@ def compute_dnnu_batch(
             n_samples=n_samples,
         )
 
-        result = compute_dnnu(
+        result = compute_delta_N_eff(
             f_i,
             y_i,
             H0=float(h0_vec[i]),
             sample_index=i if n_samples > 1 else None,
         )
 
-        dnnu[i] = result.dnnu
-        dnnu_raw[i] = result.dnnu_raw
+        delta_N_eff[i] = result.delta_N_eff
+        delta_N_eff_raw[i] = result.delta_N_eff_raw
         g2[i] = result.g2
         rejected[i] = result.rejected
         rejected_reason[i] = result.rejected_reason
         diagnostics.append(result.diagnostics)
 
-    return DnnuBatchResult(
-        dnnu=dnnu,
-        dnnu_raw=dnnu_raw,
+    return DeltaNEffBatchResult(
+        delta_N_eff=delta_N_eff,
+        delta_N_eff_raw=delta_N_eff_raw,
         g2=g2,
         rejected=rejected,
         rejected_reason=rejected_reason,
@@ -467,26 +467,29 @@ def compute_dnnu_batch(
     )
 
 
-def compute_dnnu_from_predictor(
+def compute_delta_N_eff_from_predictor(
     predictor,
     params: Mapping[str, float],
-) -> DnnuResult:
+) -> DeltaNEffResult:
     if "H0" not in params:
         raise KeyError("params must contain 'H0'.")
 
-    prediction = predictor.predict(dict(params))
+    if hasattr(predictor, "predict_value"):
+        prediction = predictor.predict_value(dict(params))
+    else:
+        prediction = predictor.predict(dict(params))
 
-    return compute_dnnu(
+    return compute_delta_N_eff(
         prediction,
         H0=float(params["H0"]),
     )
 
 
 __all__ = [
-    "DnnuResult",
-    "DnnuBatchResult",
+    "DeltaNEffResult",
+    "DeltaNEffBatchResult",
     "compute_g2",
-    "compute_dnnu",
-    "compute_dnnu_batch",
-    "compute_dnnu_from_predictor",
+    "compute_delta_N_eff",
+    "compute_delta_N_eff_batch",
+    "compute_delta_N_eff_from_predictor",
 ]
