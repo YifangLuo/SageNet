@@ -72,15 +72,15 @@ def clean_sort_unique(
     return x, y
 
 
-def simpson_atol_from_dnnu_tol(H0: float, dnnu_tol_abs: float) -> float:
+def simpson_atol_from_delta_N_eff_tol(H0: float, delta_N_eff_tol_abs: float) -> float:
 
     h = float(H0) / 100.0
     Omega_nu_val = Omega_nh2 / (h * h)
-    g2_atol = float(dnnu_tol_abs) * (Omega_nu_val / Neff0)
+    g2_atol = float(delta_N_eff_tol_abs) * (Omega_nu_val / Neff0)
     return float(g2_atol / ln10)
 
 
-def g2_to_dnnu(g2: float, H0: float) -> float:
+def g2_to_delta_N_eff(g2: float, H0: float) -> float:
     h = float(H0) / 100.0
     Omega_nu_val = Omega_nh2 / (h * h)
     return float(Neff0 * float(g2) / Omega_nu_val)
@@ -89,6 +89,6 @@ def g2_to_dnnu(g2: float, H0: float) -> float:
 __all__ = [
     "maybe_log10f",
     "clean_sort_unique",
-    "simpson_atol_from_dnnu_tol",
-    "g2_to_dnnu",
+    "simpson_atol_from_delta_N_eff_tol",
+    "g2_to_delta_N_eff",
 ]

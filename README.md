@@ -2,373 +2,228 @@
 
 ## Overview
 
-SageNetGW, also referred to as SageNet+, is a Python package for fast emulation of the inflationary stochastic gravitational wave background (SGWB) spectrum with stiff-era amplification. It extends the SageNet framework described in Zhang et al. (2025), combining neural-network emulators with the numerical `stiffGWpy` backend.
+SageNetGW is a Python package for emulating stochastic gravitational-wave background
+(SGWB) spectra and computing the corresponding effective extra radiation contribution,
+`Delta N_eff`, from the predicted spectrum.
 
-The package supports neural-network prediction of SGWB spectra using models such as Transformer, LSTM, RNN, GRU, CNN, TCN, and CosmicNet2. It also keeps a numerical backend through `stiffGWpy` for direct SGWB calculations.
-
-The latest version also provides an integrated `predict_with_dnnu()` interface, which returns a sorted SGWB spectrum and computes the corresponding contribution to the effective number of relativistic species, `Delta N_eff`.
-
-Main features:
-
-- Fast neural-network prediction of SGWB spectra.
-- Optional numerical SGWB calculation through `stiffGWpy`.
-- Automatic spectrum sorting and cleaning in the new `predict_with_dnnu()` interface.
-- Built-in `Delta N_eff` integration from the predicted SGWB spectrum.
-- Automatic rejection of extrapolative spectra with `Delta N_eff > 5`.
-- User-facing `dnnu = NaN` and masked `log10OmegaGW` for rejected spectra.
-- Backward-compatible `predict()` interface.
-
-For the original SageNet and stiffGWpy projects, see:
-
-- [SageNet](https://github.com/YifangLuo/SageNet)
-- [stiffGWpy](https://github.com/bohuarolandli/stiffGWpy)
-
----
+The current interface uses the `delta_N_eff` naming convention consistently. Legacy
+`dnnu`-style output keys and helper names are no longer used in the public example code.
 
 ## Installation
-
-### Install from PyPI
 
 ```bash
 pip install sagenetgw
 ```
 
-### Install the latest source version
+## Minimal two-case test
 
-If you want the latest development version with built-in `Delta N_eff` support, clone the repository with submodules:
+The following script tests two representative inputs:
 
-```bash
-git clone --recurse-submodules https://github.com/Hdiao112/SageNet.git
-cd SageNet
-python -m pip install -e .
-```
+1. **Case A**: a Cobaya-style sample directly converted to physical SageNet input values.
+2. **Case B**: a direct physical SageNet input example.
 
-If the `stiffGWpy` submodule was not downloaded, run:
-
-```bash
-git submodule sync --recursive
-git submodule update --init --recursive
-```
-
-You should see files such as:
-
-```text
-sagenetgw/stiffGWpy/global_param.py
-sagenetgw/stiffGWpy/th.dat
-sagenetgw/stiffGWpy/stiff_SGWB.py
-```
-
----
-
-## Dependencies
-
-- Python >= 3.8
-- PyTorch
-- NumPy
-- SciPy
-- scikit-learn
-- Astropy
-- Matplotlib, for plotting examples
-
-A typical installation is:
-
-```bash
-python -m pip install numpy scipy scikit-learn astropy torch matplotlib
-python -m pip install -e .
-```
-
----
-
-## Quick Start: SGWB Spectrum Prediction
-
-The original `predict()` interface is preserved. It returns the raw SageNet prediction:
+The script checks the returned spectrum, the sorted frequency grid, the computed
+`Delta N_eff`, and the fixed gate behavior. If `Delta N_eff_raw > 5`, the sample is
+marked as rejected and the returned spectrum is masked with `NaN` values.
 
 ```python
-from sagenetgw.classes import GWPredictor
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["SAGENET_DELTA_N_EFF_VERBOSE_REJECTION"] = "1"
+
 import numpy as np
 from matplotlib import pyplot as plt
 
-predictor = GWPredictor(
-    model_type="Transformer",
-    device="cpu",
-)
-
-prediction = predictor.predict({
-    "r":         3.9585109e-05,
-    "n_t":       1.0116972,
-    "kappa10":   110.42477,
-    "T_re":      0.17453859,
-    "DN_re":     39.366618,
-    "Omega_bh2": 0.0223828,
-    "Omega_ch2": 0.1201075,
-    "H0":        67.32117,
-    "A_s":       2.100549e-9,
-})
-
-pred_coords = np.column_stack(
-    (prediction["f"], prediction["log10OmegaGW"])
-)
-
-plt.plot(
-    pred_coords[:, 0],
-    pred_coords[:, 1],
-    "--",
-    color="royalblue",
-    marker=".",
-)
-plt.xlabel("f or log10(f)")
-plt.ylabel(r"$\log_{10}\Omega_{\rm GW}$")
-plt.tight_layout()
-plt.show()
-```
-
-This interface is kept for backward compatibility. The returned frequency grid may follow the native model output order.
-
----
-
-## New Interface: Prediction with Built-in `Delta N_eff`
-
-The recommended interface for new applications is:
-
-```python
-prediction = predictor.predict_with_dnnu(params)
-```
-
-This interface automatically:
-
-1. Predicts the SGWB spectrum.
-2. Sorts and cleans the returned frequency grid.
-3. Computes `Delta N_eff` from the predicted spectrum.
-4. Rejects spectra with `Delta N_eff > 5`.
-5. Returns `dnnu = NaN` for rejected spectra.
-6. Masks the rejected `log10OmegaGW` curve as `NaN`.
-
-Example:
-
-```python
 from sagenetgw.classes import GWPredictor
-import numpy as np
-from matplotlib import pyplot as plt
 
-predictor = GWPredictor(
-    model_type="Transformer",
-    device="cpu",
-)
 
-params = {
-    "r":         3.9585109e-05,
-    "n_t":       1.0116972,
-    "kappa10":   110.42477,
-    "T_re":      0.17453859,
-    "DN_re":     39.366618,
-    "Omega_bh2": 0.0223828,
-    "Omega_ch2": 0.1201075,
-    "H0":        67.32117,
-    "A_s":       2.100549e-9,
+# =============================================================================
+# Case A: original Cobaya-style sample, directly converted to physical params
+# =============================================================================
+params_case_A = {
+    "r": 10 ** (-33.99478),
+    "n_t": 4.2286621,
+    "kappa10": 10 ** (-0.49245602),
+    "T_re": 10 ** 5.3597445,
+    "DN_re": 1.6802285,
+    "Omega_bh2": 0.073688103,
+    "Omega_ch2": 0.08447487,
+    "H0": 33.906496,
+    "A_s": np.exp(3.8834262) * 1e-10,
 }
 
-prediction = predictor.predict_with_dnnu(params)
 
-f = np.asarray(prediction["f"], dtype=float)
-log10OmegaGW = np.asarray(prediction["log10OmegaGW"], dtype=float)
+# =============================================================================
+# Case B: direct physical SageNet input
+# =============================================================================
+params_case_B = {
+    "r": 3.9585109e-05,
+    "n_t": 1.0116972,
+    "kappa10": 1.42477,
+    "T_re": 0.17453859,
+    "DN_re": 39.366618,
+    "Omega_bh2": 0.0223828,
+    "Omega_ch2": 0.1201075,
+    "H0": 67.32117,
+    "A_s": 2.100549e-9,
+}
 
-print("f sorted:", bool(np.all(np.diff(f) > 0)))
-print("spectrum_sorted:", prediction.get("spectrum_sorted"))
-print("dnnu_f_mode:", prediction.get("dnnu_f_mode"))
 
-print("dnnu:", prediction["dnnu"])
-print("dnnu_raw:", prediction["dnnu_raw"])
-print("dnnu_rejected:", prediction["dnnu_rejected"])
-print("dnnu_rejected_reason:", prediction["dnnu_rejected_reason"])
+def run_one_case(case_name, predictor, params):
+    print("\n" + "=" * 80)
+    print(case_name)
+    print("=" * 80)
 
-if prediction["dnnu_rejected"]:
-    print(
-        "This spectrum was rejected because Delta N_eff > 5. "
-        "The user-facing dnnu is NaN and log10OmegaGW has been masked."
-    )
-else:
-    plt.figure(figsize=(7, 5))
-    plt.plot(f, log10OmegaGW, "--", color="royalblue", marker=".")
-    plt.xlabel("sorted f or log10(f)")
-    plt.ylabel(r"$\log_{10}\Omega_{\rm GW}$")
-    plt.title(
-        f"SGWB prediction with dnnu={prediction['dnnu']:.6g}"
-    )
-    plt.tight_layout()
-    plt.show()
-```
+    prediction = predictor.predict(params)
 
----
+    f = np.asarray(prediction["f"], dtype=float)
+    log10OmegaGW = np.asarray(prediction["log10OmegaGW"], dtype=float)
 
-## Returned Keys from `predict_with_dnnu()`
+    delta_N_eff = float(prediction["delta_N_eff"])
+    delta_N_eff_raw = float(prediction["delta_N_eff_raw"])
+    delta_N_eff_g2 = float(prediction["delta_N_eff_g2"])
+    rejected = bool(prediction["delta_N_eff_rejected"])
+    reason = prediction["delta_N_eff_rejected_reason"]
 
-The dictionary returned by `predict_with_dnnu()` contains the original spectrum and additional `Delta N_eff` diagnostics:
+    print("f shape:", f.shape)
+    print("log10OmegaGW shape:", log10OmegaGW.shape)
+    print("f sorted:", bool(np.all(np.diff(f) > 0)))
+    print("spectrum_sorted:", prediction.get("spectrum_sorted", None))
+    print("delta_N_eff_f_mode:", prediction.get("delta_N_eff_f_mode", None))
 
-| Key | Meaning |
-|---|---|
-| `f` | Sorted frequency grid. For current SageNet models this is usually `log10(f)`. |
-| `log10OmegaGW` | Sorted `log10(Omega_GW)` spectrum. If rejected, this is fully masked as `NaN`. |
-| `dnnu` | User-facing `Delta N_eff`. If `dnnu_raw > 5`, this is `NaN`. |
-| `dnnu_raw` | Raw integrated `Delta N_eff` before the `Delta N_eff > 5` gate. |
-| `dnnu_g2` | Integrated SGWB energy-density quantity used to compute `Delta N_eff`. |
-| `dnnu_rejected` | Boolean flag indicating whether the sample was rejected. |
-| `dnnu_rejected_reason` | Rejection reason. Currently `"dnnu_above_5"` for `Delta N_eff > 5`. |
-| `dnnu_diagnostics` | Integration diagnostics, including method, convergence, and grid information. |
-| `spectrum_sorted` | Boolean flag showing whether the returned spectrum was sorted. |
-| `dnnu_f_mode` | Internal frequency-mode diagnostic, for example `assume_log10f_nonpositive_seen`. |
+    print("\n=== Delta N_eff output ===")
+    print("delta_N_eff      =", delta_N_eff)
+    print("delta_N_eff_raw  =", delta_N_eff_raw)
+    print("delta_N_eff_g2   =", delta_N_eff_g2)
+    print("rejected         =", rejected)
+    print("reason           =", reason)
 
----
+    print("\n=== Gate check ===")
+    print("raw > 5:", bool(delta_N_eff_raw > 5.0))
+    print("delta_N_eff is NaN:", bool(np.isnan(delta_N_eff)))
+    print("spectrum all NaN:", bool(np.all(np.isnan(log10OmegaGW))))
 
-## `Delta N_eff > 5` Guard
+    if rejected:
+        print("\nSpectrum rejected by Delta N_eff gate; no physical curve is plotted.")
+    else:
+        plt.figure(figsize=(7, 5))
+        plt.plot(f, log10OmegaGW, "--", marker=".")
+        plt.xlabel("f or log10(f)")
+        plt.ylabel(r"$\log_{10}\Omega_{\rm GW}$")
+        plt.title(
+            rf"{case_name}: "
+            rf"$\Delta N_{{\rm eff}}$={delta_N_eff:.6g}, "
+            rf"$\Delta N_{{\rm eff,raw}}$={delta_N_eff_raw:.6g}"
+        )
+        plt.tight_layout()
+        plt.show()
 
-The built-in `Delta N_eff` interface uses a fixed non-extrapolation rule:
+    return prediction
 
-```text
-Delta N_eff > 5  -> rejected
-```
-
-When this happens:
-
-```python
-prediction["dnnu"] == np.nan
-prediction["dnnu_rejected"] == True
-prediction["dnnu_rejected_reason"] == "dnnu_above_5"
-np.all(np.isnan(prediction["log10OmegaGW"])) == True
-```
-
-The raw value is still stored as:
-
-```python
-prediction["dnnu_raw"]
-```
-
-This allows the user to inspect why the sample was rejected without accidentally using the extrapolated SGWB spectrum as a physical prediction.
-
----
-
-## Batch Prediction with `Delta N_eff`
-
-For a list of parameter dictionaries, use:
-
-```python
-from sagenetgw.classes import GWPredictor
 
 predictor = GWPredictor(
     model_type="Transformer",
     device="cpu",
 )
 
-params_list = [
-    {
-        "r":         3.9585109e-05,
-        "n_t":       1.0116972,
-        "kappa10":   1.42477,
-        "T_re":      0.17453859,
-        "DN_re":     39.366618,
-        "Omega_bh2": 0.0223828,
-        "Omega_ch2": 0.1201075,
-        "H0":        67.32117,
-        "A_s":       2.100549e-9,
-    },
-    {
-        "r":         1.0e-10,
-        "n_t":       2.0,
-        "kappa10":   10.0,
-        "T_re":      1.0e3,
-        "DN_re":     20.0,
-        "Omega_bh2": 0.0224,
-        "Omega_ch2": 0.12,
-        "H0":        67.4,
-        "A_s":       2.1e-9,
-    },
-]
+out_A = run_one_case(
+    case_name="Case A: original row_index=5632",
+    predictor=predictor,
+    params=params_case_A,
+)
 
-out = predictor.predict_batch_with_dnnu(params_list)
+out_B = run_one_case(
+    case_name="Case B: direct physical input",
+    predictor=predictor,
+    params=params_case_B,
+)
 
-print(out["dnnu"])
-print(out["dnnu_raw"])
-print(out["dnnu_rejected"])
-print(out["dnnu_rejected_reason"])
+
+print("\n" + "=" * 80)
+print("Final compact summary")
+print("=" * 80)
+
+for name, out in [
+    ("Case A", out_A),
+    ("Case B", out_B),
+]:
+    f = np.asarray(out["f"], dtype=float)
+    y = np.asarray(out["log10OmegaGW"], dtype=float)
+
+    print(f"\n{name}")
+    print("f sorted:", bool(np.all(np.diff(f) > 0)))
+    print("delta_N_eff:", out["delta_N_eff"])
+    print("delta_N_eff_raw:", out["delta_N_eff_raw"])
+    print("rejected:", out["delta_N_eff_rejected"])
+    print("reason:", out["delta_N_eff_rejected_reason"])
+    print("spectrum all NaN:", bool(np.all(np.isnan(y))))
 ```
 
-If one sample has `Delta N_eff > 5`, only that sample is rejected. The remaining samples continue normally.
+## Returned prediction keys
 
----
-
-## Numerical Backend
-
-SageNetGW also supports the numerical backend:
+`GWPredictor.predict(params)` returns the original spectrum keys plus the new
+`Delta N_eff` fields:
 
 ```python
-from sagenetgw.classes import GWPredictor
-
-predictor = GWPredictor(model_type="Numerical")
-
-prediction = predictor.predict({
-    "r":         3.9585109e-05,
-    "n_t":       1.0116972,
-    "kappa10":   1.42477,
-    "T_re":      0.17453859,
-    "DN_re":     39.366618,
-    "Omega_bh2": 0.0223828,
-    "Omega_ch2": 0.1201075,
-    "H0":        67.32117,
-    "A_s":       2.100549e-9,
-})
+prediction["f"]
+prediction["log10OmegaGW"]
+prediction["delta_N_eff"]
+prediction["delta_N_eff_raw"]
+prediction["delta_N_eff_g2"]
+prediction["delta_N_eff_rejected"]
+prediction["delta_N_eff_rejected_reason"]
+prediction["delta_N_eff_diagnostics"]
 ```
 
-For most parameter scans and MCMC applications, the neural-network interface is much faster than direct numerical integration.
-
----
-
-## Parameter Ranges
-
-The following cosmological parameters are supported:
-
-| Parameter | Range | Scale |
-|---|---:|---|
-| `r` | `[1e-40, 1]` | Logarithmic |
-| `n_t` | `[-1, 6]` | Linear |
-| `kappa10` | `[1e-7, 1e3]` | Logarithmic |
-| `T_re` | `[1e-3, 1e7] GeV` | Logarithmic |
-| `DN_re` | `[0, 40]` | Linear |
-| `Omega_bh2` | `[0.005, 0.1]` | Linear |
-| `Omega_ch2` | `[0.001, 0.99]` | Linear |
-| `H0` | `[20, 100] km/s/Mpc` | Linear |
-| `A_s` | `[exp(1.61)/1e10, exp(3.91)/1e10]` | Linear |
-
-The predictor will issue warnings when input parameters are outside the nominal training range.
-
----
-
-## Notes on Frequency Ordering
-
-The raw `predict()` interface preserves the original model output. The output frequency grid may not be sorted.
-
-The new `predict_with_dnnu()` interface automatically sorts and deduplicates the frequency grid before returning it. Therefore, for plotting and `Delta N_eff` applications, `predict_with_dnnu()` is recommended.
-
-You can check sorting with:
+The helper also marks the sorted spectrum state:
 
 ```python
-import numpy as np
-
-f = np.asarray(prediction["f"], dtype=float)
-print(np.all(np.diff(f) > 0))
+prediction["spectrum_sorted"]
+prediction["delta_N_eff_f_mode"]
 ```
 
----
+## Gate behavior
 
-## Citation
+The internal fixed gate is:
 
-If you use SageNetGW or SageNet+ in your research, please cite:
+```python
+Delta N_eff_raw > 5  -> rejected = True
+Delta N_eff          -> NaN
+log10OmegaGW         -> all NaN
+```
 
-> Zhang F, Luo Y, Li B, et al. (2025).  
-> SageNet: Fast Neural Network Emulation of the Stiff-amplified Gravitational Waves from Inflation.  
-> *The Astrophysical Journal Supplement Series*, 279(2), 44.  
-> doi:10.3847/1538-4365/ade4c6
+This prevents extrapolated spectra from being accidentally plotted or saved as physical
+SGWB predictions.
 
----
+## Batch prediction
 
-## License
+For a list of input dictionaries, use:
 
-SageNetGW is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+```python
+batch = predictor.predict_batch_with_delta_N_eff([params_case_A, params_case_B])
+
+print(batch["delta_N_eff"])
+print(batch["delta_N_eff_raw"])
+print(batch["delta_N_eff_rejected"])
+print(batch["delta_N_eff_rejected_reason"])
+```
+
+## Naming convention
+
+Use the new `delta_N_eff` names consistently. Do not use the old `dnnu` keys in new code.
+
+| Old name | New name |
+|---|---|
+| `dnnu` | `delta_N_eff` |
+| `dnnu_raw` | `delta_N_eff_raw` |
+| `dnnu_g2` | `delta_N_eff_g2` |
+| `dnnu_rejected` | `delta_N_eff_rejected` |
+| `dnnu_rejected_reason` | `delta_N_eff_rejected_reason` |
+| `dnnu_diagnostics` | `delta_N_eff_diagnostics` |
+| `predict_batch_with_dnnu()` | `predict_batch_with_delta_N_eff()` |
+| `SAGENET_DNNU_VERBOSE_REJECTION` | `SAGENET_DELTA_N_EFF_VERBOSE_REJECTION` |
