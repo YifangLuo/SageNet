@@ -16,7 +16,7 @@ and no option to keep extrapolated curves.
 """
 
 from __future__ import annotations
-
+import os
 import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -141,11 +141,20 @@ def _sort_prediction_spectrum_for_output(
     return sorted_prediction
 
 
+def _dnnu_verbose_rejection_enabled() -> bool:
+    return os.environ.get(
+        "SAGENET_DNNU_VERBOSE_REJECTION", "0"
+    ).lower() in {"1", "true", "yes", "on"}
+
+
 def _print_dnnu_rejection_message(
     *,
     dnnu_raw: float,
     sample_index: Optional[int] = None,
 ) -> None:
+    if not _dnnu_verbose_rejection_enabled():
+        return
+
     if sample_index is None:
         msg = (
             "[SageNet dnnu] Extrapolated prediction rejected because "
