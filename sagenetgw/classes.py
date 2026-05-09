@@ -269,7 +269,7 @@ class GWPredictor:
         self.y_scaler = checkpoint["y_scaler"]
         self.param_scaler = checkpoint["param_scaler"]
 
-    def predict(self, params_dict):
+    def predict_value(self, params_dict):
         """
         Predict gravitational wave signal based on input parameters.
 
@@ -320,7 +320,7 @@ class GWPredictor:
             "log10OmegaGW": denorm_y[0].tolist(),
         }
 
-    def predict_with_dnnu(self, params_dict, _sample_index=None):
+    def predict(self, params_dict, _sample_index=None):
         """
         Predict SGWB spectrum and compute Delta N_eff.
 
@@ -334,10 +334,10 @@ class GWPredictor:
         """
         _check_required_params(params_dict)
 
-        prediction = self.predict(params_dict)
+        prediction = self.predict_value(params_dict)
 
-        from .dnnu import compute_dnnu
-        from .dnnu.api import _sort_prediction_spectrum_for_output
+        from .delta_N_eff import compute_dnnu
+        from .delta_N_eff.api import _sort_prediction_spectrum_for_output
 
         prediction = _sort_prediction_spectrum_for_output(prediction)
 
@@ -375,7 +375,7 @@ class GWPredictor:
         predictions = []
 
         for i, params_dict in enumerate(params_list):
-            prediction_i = self.predict_with_dnnu(
+            prediction_i = self.predict(
                 params_dict,
                 _sample_index=i,
             )
